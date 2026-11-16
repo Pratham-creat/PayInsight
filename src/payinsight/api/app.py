@@ -8,6 +8,7 @@ from payinsight.models import KPI, Metrics, PaymentRisk
 from payinsight.pipeline.run import build_demo
 from payinsight.pipeline.stages import aggregate_metrics
 from payinsight.risk.engine import RULES, RiskEngine
+from payinsight.risk.evaluate import evaluate
 
 app = FastAPI(title="PayInsight India Payments API", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -53,26 +54,153 @@ def kpis() -> list[KPI]:
                 description="Transactions requiring analyst review")]
 
 
-@app.get("/api/transactions")
-@app.get("/api/payments")
-def transactions(limit: int = Query(50, ge=1, le=500), status: str | None = None,
-                 method: str | None = None, merchant_id: str | None = None) -> list[dict]:
+@app.get("/api/kpis/summary")
+def kpi_summary() -> dict:
+    return {"kpis": [item.model_dump() for item in kpis()], "currency": "INR"}
+
+
+@app.get("/api/trends")
+def trends(bank: str | None = None, method: str | None = None,
+           start_date: str | None = None, end_date: str | None = None) -> list[dict]:
     warehouse, _, _ = resources()
     clauses, params = [], []
+    for column, value in (("bank_name", bank), ("payment_method", method)):
+        if value:
+            clauses.append(f"{column} = ?")
+            params.append(value)
+    if start_date:
+        clauses.append("CAST(created_at AS DATE) >= CAST(? AS DATE)")
+        params.append(start_date)
+    if end_date:
+        clauses.append("CAST(created_at AS DATE) <= CAST(? AS DATE)")
+        params.append(end_date)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    return warehouse.query(
+        "SELECT CAST(created_at AS DATE) AS date, COUNT(*) AS transactions, "
+        "SUM(amount_inr) AS volume_inr FROM payments" + where +
+        " GROUP BY date ORDER BY date", params).to_dicts()
+
+
+@app.get("/api/performance/banks")
+def bank_performance() -> list[dict]:
+    warehouse, _, _ = resources()
+    return warehouse.query(
+        "SELECT bank_name, COUNT(*) AS transactions, SUM(amount_inr) AS volume_inr, "
+        "AVG(CASE WHEN transaction_status = 'SUCCESS' THEN 1 ELSE 0 END) * 100 AS success_rate "
+        "FROM payments GROUP BY bank_name ORDER BY volume_inr DESC").to_dicts()
+
+
+@app.get("/api/performance/methods")
+def method_performance() -> list[dict]:
+    warehouse, _, _ = resources()
+    return warehouse.query(
+        "SELECT payment_method, COUNT(*) AS transactions, SUM(amount_inr) AS volume_inr, "
+        "AVG(CASE WHEN transaction_status = 'SUCCESS' THEN 1 ELSE 0 END) * 100 AS success_rate "
+        "FROM payments GROUP BY payment_method ORDER BY volume_inr DESC").to_dicts()
+
+
+@app.get("/api/matrix")
+def matrix() -> list[dict]:
+    warehouse, _, _ = resources()
+    return warehouse.query(
+        "SELECT bank_name, payment_method, transaction_status, COUNT(*) AS transactions, "
+        "SUM(amount_inr) AS volume_inr FROM payments "
+        "GROUP BY bank_name, payment_method, transaction_status").to_dicts()
+
+
+@app.get("/api/failures/reasons")
+def failure_reasons() -> list[dict]:
+    warehouse, _, _ = resources()
+    return warehouse.query(
+        "SELECT COALESCE(failure_reason, 'UNKNOWN') AS failure_reason, COUNT(*) AS failures "
+        "FROM payments WHERE transaction_status = 'FAILED' "
+        "GROUP BY failure_reason ORDER BY failures DESC").to_dicts()
+
+
+@app.get("/api/customers/segments")
+def customer_segments() -> list[dict]:
+    warehouse, _, _ = resources()
+    return warehouse.query(
+        "SELECT CASE WHEN COUNT(*) >= 8 THEN 'high_frequency' "
+        "WHEN AVG(amount_inr) >= 50000 THEN 'high_value' ELSE 'standard' END AS segment, "
+        "COUNT(DISTINCT customer_id) AS customers FROM payments GROUP BY customer_id "
+        "ORDER BY customers DESC").to_dicts()
+
+
+@app.get("/api/top")
+def top_transactions(limit: int = Query(10, ge=1, le=100),
+                     bank: str | None = None, method: str | None = None) -> list[dict]:
+    warehouse, _, _ = resources()
+    clauses, params = [], []
+    if bank:
+        clauses.append("bank_name = ?")
+        params.append(bank)
+    if method:
+        clauses.append("payment_method = ?")
+        params.append(method)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    return warehouse.query(
+        "SELECT transaction_id, merchant_id, amount_inr, bank_name, payment_method, "
+        "transaction_status, created_at FROM payments" + where +
+        " ORDER BY amount_inr DESC LIMIT ?", [*params, limit]).to_dicts()
+
+
+@app.get("/api/risk/flagged")
+def flagged_risk(page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=500),
+                 bank: str | None = None, method: str | None = None) -> dict:
+    _, events, engine = resources()
+    rows = []
+    for event in events:
+        risk = engine.assess(event)
+        if risk.risk_band in {"high", "critical"} and (not bank or event.bank_name.value == bank) and (
+            not method or event.payment_method.value == method
+        ):
+            rows.append({"transaction_id": event.transaction_id, **risk.model_dump(exclude={"transaction_id"})})
+    start = (page - 1) * page_size
+    return {"items": rows[start:start + page_size], "page": page, "page_size": page_size, "total": len(rows)}
+
+
+@app.get("/api/risk/evaluation")
+def risk_evaluation() -> dict:
+    _, events, _ = resources()
+    return evaluate(events)
+
+
+@app.get("/api/transactions")
+@app.get("/api/payments")
+def transactions(limit: int = Query(50, ge=1, le=500), page: int = Query(1, ge=1),
+                 page_size: int | None = Query(None, ge=1, le=500),
+                 status: str | None = None, method: str | None = None,
+                 bank: str | None = None, merchant_id: str | None = None,
+                 start_date: str | None = None, end_date: str | None = None) -> list[dict]:
+    warehouse, _, _ = resources()
+    clauses, params = [], []
+    status = status.upper() if status else None
+    method = method.upper() if method else None
     if status in {"SUCCESS", "FAILED", "PENDING", "REFUNDED"}:
         clauses.append("transaction_status = ?")
         params.append(status)
     if method in {"UPI", "CARD", "NET_BANKING", "WALLET"}:
         clauses.append("payment_method = ?")
         params.append(method)
+    if bank:
+        clauses.append("bank_name = ?")
+        params.append(bank)
     if merchant_id:
         clauses.append("merchant_id = ?")
         params.append(merchant_id)
+    if start_date:
+        clauses.append("CAST(created_at AS DATE) >= CAST(? AS DATE)")
+        params.append(start_date)
+    if end_date:
+        clauses.append("CAST(created_at AS DATE) <= CAST(? AS DATE)")
+        params.append(end_date)
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    size = page_size or limit
     rows = warehouse.query(
         f"SELECT transaction_id, merchant_id, customer_id, amount_inr, currency, payment_method, "
         f"bank_name, transaction_status, merchant_category, city, state, created_at FROM payments"
-        f"{where} ORDER BY created_at DESC LIMIT ?", [*params, limit]).to_dicts()
+        f"{where} ORDER BY created_at DESC LIMIT ? OFFSET ?", [*params, size, (page - 1) * size]).to_dicts()
     return [{**row, "payment_id": row["transaction_id"]} for row in rows]
 
 

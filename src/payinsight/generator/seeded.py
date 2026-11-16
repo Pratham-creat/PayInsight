@@ -48,6 +48,13 @@ def generate_payments(
         status = TransactionStatus.FAILED if i % 29 == 0 else (
             TransactionStatus.REFUNDED if i % 101 == 0 else TransactionStatus.SUCCESS
         )
+        retry_of = _token("txn", seed, i - 1, 12) if i % 53 == 0 and i else None
+        bank_outage = i % 167 == 0
+        if bank_outage:
+            status = TransactionStatus.FAILED
+            fraud_type = fraud_type or "bank_outage"
+        failure_reason = "BANK_OUTAGE" if bank_outage else ("INSUFFICIENT_FUNDS" if status == TransactionStatus.FAILED else None)
+        response_code = "00" if status == TransactionStatus.SUCCESS else ("91" if bank_outage else "05")
         city, state = CITIES[i % len(CITIES)]
         event = PaymentEvent(
             transaction_id=_token("txn", seed, i, 12), payment_id=_token("pay", seed, i, 12),
@@ -57,7 +64,10 @@ def generate_payments(
             merchant_category=CATEGORIES[i % len(CATEGORIES)], city=city, state=state,
             ip_address=_ip(seed, i // 3 if i % 37 == 0 else i),
             device_id=_token("dev", seed, i // 5 if i % 41 == 0 else i, 16),
-            created_at=origin + timedelta(minutes=i * 7), is_fraud=is_fraud, fraud_type=fraud_type,
+            created_at=origin + timedelta(days=i % 365, minutes=(i * 7) % 1440),
+            is_fraud=is_fraud, fraud_type=fraud_type,
+            retry_of=retry_of, response_code=response_code, failure_reason=failure_reason,
+            bank_outage=bank_outage, dirty_row=(i % 997 == 0),
         )
         chunk.append(event)
         if len(chunk) == chunk_size:

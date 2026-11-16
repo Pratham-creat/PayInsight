@@ -56,6 +56,11 @@ class PaymentEvent(BaseModel):
     created_at: datetime
     is_fraud: bool = False
     fraud_type: str | None = None
+    retry_of: str | None = None
+    response_code: str | None = None
+    failure_reason: str | None = None
+    bank_outage: bool = False
+    dirty_row: bool = False
 
     @property
     def amount(self) -> Decimal:
