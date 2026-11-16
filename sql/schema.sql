@@ -1,5 +1,14 @@
-CREATE TABLE IF NOT EXISTS payroll_events (
-    employee_id VARCHAR, employer_id VARCHAR, pay_date DATE,
-    gross_pay DECIMAL(18,2), net_pay DECIMAL(18,2), hours DECIMAL(10,2),
-    bank_account_hash VARCHAR, created_at TIMESTAMP
+CREATE TABLE IF NOT EXISTS payments (
+  payment_id VARCHAR PRIMARY KEY,
+  merchant_id VARCHAR NOT NULL,
+  customer_id VARCHAR NOT NULL,
+  amount DECIMAL(18, 2) NOT NULL CHECK (amount > 0),
+  currency VARCHAR(3) NOT NULL,
+  status VARCHAR NOT NULL,
+  payment_method VARCHAR NOT NULL,
+  merchant_category VARCHAR NOT NULL,
+  country VARCHAR(2) NOT NULL,
+  ip_address VARCHAR NOT NULL,
+  device_id VARCHAR NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL
 );

@@ -1,8 +1,6 @@
-#!/usr/bin/env python
-from payinsight.generator.seeded import generate_events
-from payinsight.warehouse.duckdb import Warehouse
+"""Generate a local payment fixture: python scripts/generate_data.py --count 1000."""
+from payinsight.generator.cli import main
 
-warehouse = Warehouse("payinsight.duckdb")
-count = sum(warehouse.load(chunk) for chunk in generate_events(10000))
-print(f"loaded {count} events")
-warehouse.close()
+
+if __name__ == "__main__":
+    main()
