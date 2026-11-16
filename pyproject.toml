@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "payinsight"
+version = "1.0.0"
+description = "Payment intelligence, fraud risk scoring, and operational analytics."
+requires-python = ">=3.11"
+dependencies = [
+  "duckdb>=1.0",
+  "fastapi>=0.110",
+  "numpy>=1.26",
+  "pyarrow>=23.0.1",
+  "pandera>=0.20",
+  "polars>=1.0",
+  "pydantic>=2.6",
+  "scikit-learn>=1.4",
+  "uvicorn[standard]>=0.29",
+]
+
+[project.optional-dependencies]
+dev = ["httpx>=0.27", "pytest>=8", "pytest-cov>=5", "ruff>=0.6"]
+
+[project.scripts]
+payinsight-generate = "payinsight.generator.cli:main"
+payinsight-pipeline = "payinsight.pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
