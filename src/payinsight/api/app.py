@@ -60,6 +60,7 @@ def kpi_summary() -> dict:
 
 
 @app.get("/api/trends")
+@app.get("/api/kpis/trends")
 def trends(bank: str | None = None, method: str | None = None,
            start_date: str | None = None, end_date: str | None = None) -> list[dict]:
     warehouse, _, _ = resources()
@@ -100,6 +101,7 @@ def method_performance() -> list[dict]:
 
 
 @app.get("/api/matrix")
+@app.get("/api/performance/matrix")
 def matrix() -> list[dict]:
     warehouse, _, _ = resources()
     return warehouse.query(
@@ -128,6 +130,7 @@ def customer_segments() -> list[dict]:
 
 
 @app.get("/api/top")
+@app.get("/api/customers/top")
 def top_transactions(limit: int = Query(10, ge=1, le=100),
                      bank: str | None = None, method: str | None = None) -> list[dict]:
     warehouse, _, _ = resources()

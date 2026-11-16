@@ -32,6 +32,7 @@ class BankName(StrEnum):
     KOTAK = "Kotak Mahindra Bank"
     YES = "Yes Bank"
     IDFC = "IDFC First Bank"
+    PNB = "Punjab National Bank"
 
 
 class PaymentEvent(BaseModel):
