@@ -17,3 +17,9 @@ run:
 
 generate:
 	python scripts/generate_data.py --count 1000
+
+pipeline:
+	payinsight-pipeline --rows 1000 --seed 42 --stage full
+
+export:
+	python scripts/export_payments.py --rows 1000

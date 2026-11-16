@@ -4,8 +4,8 @@ from payinsight.pipeline.stages import build_features, payments_frame, validate_
 from payinsight.warehouse.duckdb import PaymentWarehouse
 
 
-def build_demo(count: int = 1_000) -> tuple[PaymentWarehouse, list]:
-    events = [event for chunk in generate_payments(count) for event in chunk]
+def build_demo(count: int = 1_000, seed: int = 42) -> tuple[PaymentWarehouse, list]:
+    events = [event for chunk in generate_payments(count, seed=seed) for event in chunk]
     frame = build_features(validate_payments(payments_frame(events)))
     warehouse = PaymentWarehouse()
     warehouse.load(frame)

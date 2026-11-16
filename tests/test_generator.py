@@ -11,6 +11,6 @@ def test_generator_is_deterministic_and_chunked():
 
 def test_generator_has_payment_domain_fields():
     payment = next(generate_payments(1))[0]
-    assert payment.currency in {"USD", "EUR"}
+    assert payment.currency == "INR"
     assert payment.merchant_id.startswith("mer_")
     assert payment.amount > 0

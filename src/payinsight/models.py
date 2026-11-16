@@ -1,4 +1,8 @@
-"""Validated domain models shared by ingestion, risk, and the API."""
+"""PayInsight's Indian payment domain models.
+
+``is_fraud`` is deliberately an ingestion/model-training field and is never part of
+the public response models.
+"""
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -6,34 +10,64 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class PaymentStatus(StrEnum):
-    succeeded = "succeeded"
-    failed = "failed"
-    refunded = "refunded"
-    pending = "pending"
+class TransactionStatus(StrEnum):
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    PENDING = "PENDING"
+    REFUNDED = "REFUNDED"
 
 
 class PaymentMethod(StrEnum):
-    card = "card"
-    bank_transfer = "bank_transfer"
-    wallet = "wallet"
+    UPI = "UPI"
+    CARD = "CARD"
+    NET_BANKING = "NET_BANKING"
+    WALLET = "WALLET"
+
+
+class BankName(StrEnum):
+    HDFC = "HDFC Bank"
+    SBI = "State Bank of India"
+    ICICI = "ICICI Bank"
+    AXIS = "Axis Bank"
+    KOTAK = "Kotak Mahindra Bank"
+    YES = "Yes Bank"
+    IDFC = "IDFC First Bank"
 
 
 class PaymentEvent(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """Canonical generated row. Amounts are always Indian rupees."""
 
-    payment_id: str = Field(pattern=r"^pay_[a-z0-9]{12}$")
+    model_config = ConfigDict(from_attributes=True)
+    transaction_id: str = Field(pattern=r"^txn_[a-z0-9]{12}$")
+    payment_id: str | None = None  # compatibility alias for prior clients
     merchant_id: str = Field(pattern=r"^mer_[A-Z0-9]{6}$")
     customer_id: str = Field(pattern=r"^cus_[A-Z0-9]{6}$")
-    amount: Decimal = Field(gt=0, decimal_places=2)
-    currency: str = Field(min_length=3, max_length=3)
-    status: PaymentStatus
+    amount_inr: Decimal = Field(gt=0, decimal_places=2)
+    currency: str = Field(default="INR", pattern="^INR$")
     payment_method: PaymentMethod
-    merchant_category: str = Field(min_length=2, max_length=40)
-    country: str = Field(min_length=2, max_length=2)
+    bank_name: BankName
+    transaction_status: TransactionStatus
+    status: TransactionStatus | None = None
+    merchant_category: str
+    city: str
+    state: str
     ip_address: str
-    device_id: str = Field(min_length=8, max_length=64)
+    device_id: str
     created_at: datetime
+    is_fraud: bool = False
+    fraud_type: str | None = None
+
+    @property
+    def amount(self) -> Decimal:
+        """Compatibility accessor; canonical storage name is amount_inr."""
+        return self.amount_inr
+
+    def public_dict(self) -> dict:
+        """Return a safe representation, excluding labels and internal fields."""
+        return self.model_dump(
+            mode="json",
+            exclude={"is_fraud", "fraud_type", "payment_id", "status"},
+        )
 
 
 class RiskFinding(BaseModel):
@@ -45,7 +79,7 @@ class RiskFinding(BaseModel):
 
 
 class PaymentRisk(BaseModel):
-    payment_id: str
+    transaction_id: str
     risk_score: float = Field(ge=0, le=100)
     risk_band: str
     decision: str
@@ -53,10 +87,25 @@ class PaymentRisk(BaseModel):
 
 
 class Metrics(BaseModel):
-    total_payments: int
-    successful_payments: int
-    failed_payments: int
-    total_volume: float
-    high_risk_payments: int
+    total_transactions: int
+    successful_transactions: int
+    failed_transactions: int
+    pending_transactions: int
+    refunded_transactions: int
+    total_volume_inr: float
+    fraud_rate: float
+    high_risk_transactions: int
     merchants: int
     customers: int
+    # Deprecated response keys retained for one release for dashboard clients.
+    total_payments: int | None = None
+    successful_payments: int | None = None
+    failed_payments: int | None = None
+    total_volume: float | None = None
+
+
+class KPI(BaseModel):
+    name: str
+    value: float
+    unit: str
+    description: str
